@@ -1,6 +1,6 @@
 {
   "name": "js-in-strings",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A library for rendering templates with JavaScript expressions",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -17,7 +17,16 @@
     "expressions",
     "string-interpolation"
   ],
-  "author": "",
+  "author": "Enoch Abassey",
+  "bugs": {
+    "url": "https://github.com/eabassey/js-in-strings/issues"
+  },
+  "homepage": "https://github.com/eabassey/js-in-strings#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/eabassey/js-in-strings.git",
+    "directory": "packages/js-in-strings"
+  },
   "license": "MIT",
   "devDependencies": {
     "@types/jest": "^29.5.5",
