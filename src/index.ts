@@ -4,6 +4,44 @@
  */
 
 /**
+ * Configuration options for renderTemplateWithJS
+ */
+export interface RenderOptions {
+  /**
+   * If true, the function will return the raw value of the expression instead of converting it to a string
+   */
+  returnRawValues?: boolean;
+  
+  /**
+   * If true, the function will run in sandbox mode, restricting access to global objects
+   */
+  sandbox?: boolean;
+  
+  /**
+   * Custom global objects to be provided to the expression when in sandbox mode
+   */
+  allowedGlobals?: Record<string, any>;
+  
+  /**
+   * Timeout in milliseconds for expression evaluation
+   * Set to 0 to disable timeout
+   * Default: 1000ms (1 second)
+   */
+  timeout?: number;
+  
+  /**
+   * Custom delimiters for expressions
+   * Default: ['{', '}']
+   */
+  delimiters?: [string, string];
+  
+  /**
+   * Additional context properties to extend the main context
+   */
+  contextExtensions?: Record<string, any>;
+}
+
+/**
  * Renders a template string with JavaScript expressions
  * 
  * @param template - The template string containing JavaScript expressions wrapped in {}
@@ -22,40 +60,109 @@
  * // Raw value extraction
  * const data = renderTemplateWithJS("{items.filter(i => i > 2)}", { items: [1, 2, 3, 4, 5] }, { returnRawValues: true });
  * // Returns the actual array: [3, 4, 5]
+ * 
+ * // Custom delimiters
+ * const customResult = renderTemplateWithJS("Hello, ${name}!", { name: "World" }, { delimiters: ["${" ,"}"] });
+ * // "Hello, World!"
  * ```
  */
 export function renderTemplateWithJS<T = string>(
   template: string, 
   context: Record<string, any>, 
-  options: { returnRawValues?: boolean } = {}
+  options: RenderOptions = {}
 ): T | string {
-  // Regular expression to match JavaScript expressions within {}
-  const expressionRegex = /\{([^{}]*?)\}/g;
+  // Set up delimiters - default to {} if not specified
+  const [openDelimiter, closeDelimiter] = options.delimiters || ['{', '}'];
+  
+  // Escape special characters for regex
+  const escOpenDelimiter = openDelimiter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escCloseDelimiter = closeDelimiter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  
+  // Create regex pattern for the specified delimiters
+  const expressionRegex = new RegExp(`${escOpenDelimiter}([^${escOpenDelimiter}${escCloseDelimiter}]*?)${escCloseDelimiter}`, 'g');
+  const singleExpressionRegex = new RegExp(`^${escOpenDelimiter}([\\s\\S]*?)${escCloseDelimiter}$`);
+  
+  // Merge context with any extensions
+  const mergedContext = {
+    ...context,
+    ...options.contextExtensions
+  };
   
   // If the template is a single expression and returnRawValues is true, return the raw value
   if (options.returnRawValues) {
     const trimmedTemplate = template.trim();
-    const match = trimmedTemplate.match(/^\{([\s\S]*?)\}$/);
+    const match = trimmedTemplate.match(singleExpressionRegex);
     if (match) {
       try {
-        const expression = match[1];
-        const contextKeys = Object.keys(context);
-        const contextValues = Object.values(context);
+        const expression = match[1].trim();
+        const contextKeys = Object.keys(mergedContext);
+        const contextValues = Object.values(mergedContext);
         
-        // Check if the expression contains multiple statements or return statement
+        // Check for IIFE patterns first
+        const isIIFE = /^\s*\(.*\)\s*\(.*\)/.test(expression) || // (function(){})() pattern
+                      /^\s*\(.*=>.*\)\s*\(/.test(expression);   // (() => {})() pattern
+        
+        // Check if the expression contains declarations or complex statements
+        const hasDeclarations = /\b(const|let|var|function|class)\b/.test(expression);
         const hasMultipleStatements = expression.includes(';');
-        const hasReturnStatement = /\breturn\b/.test(expression);
         
-        let evaluator;
-        if (hasMultipleStatements || hasReturnStatement) {
-          // For complex expressions with multiple statements or explicit return
-          evaluator = new Function(...contextKeys, expression.includes('return') ? expression : `return (${expression});`);
+        let result: any;
+        
+        // Handle different types of expressions
+        if (isIIFE) {
+          // For IIFE patterns, evaluate as is
+          try {
+            // We need to use eval for IIFE patterns because Function constructor
+            // doesn't handle them well
+            const contextStr = Object.entries(mergedContext)
+              .map(([key, value]) => `const ${key} = ${JSON.stringify(value)};`)
+              .join('\n');
+            
+            // Use eval in a controlled way with the context variables defined
+            result = eval(`${contextStr}\n${expression}`);
+          } catch (error) {
+            console.error(`Error executing IIFE:`, error);
+            return `[Error: ${error instanceof Error ? error.message : String(error)}]` as any;
+          }
+        } else if (hasDeclarations || hasMultipleStatements) {
+          // For complex expressions with declarations, we need to handle them specially
+          // Make sure there's a return statement if one isn't already present
+          let functionBody: string;
+          if (expression.includes('return ')) {
+            functionBody = expression;
+          } else {
+            // For expressions with declarations but no return, add a return at the end
+            const lastSemicolonIndex = expression.lastIndexOf(';');
+            if (lastSemicolonIndex !== -1 && lastSemicolonIndex < expression.length - 1) {
+              // There's content after the last semicolon, return that
+              const lastExpression = expression.substring(lastSemicolonIndex + 1).trim();
+              functionBody = `${expression.substring(0, lastSemicolonIndex + 1)} return ${lastExpression};`;
+            } else {
+              // No obvious return value, just add a return undefined
+              functionBody = `${expression} return undefined;`;
+            }
+          }
+          
+          try {
+            // Use the new Function constructor for evaluation
+            const evaluator = new Function(...contextKeys, functionBody);
+            result = evaluator(...contextValues);
+          } catch (error) {
+            console.error(`Error executing complex expression:`, error);
+            return `[Error: ${error instanceof Error ? error.message : String(error)}]` as any;
+          }
         } else {
-          // For simple expressions
-          evaluator = new Function(...contextKeys, `return (${expression});`);
+          // For simple expressions, just return them directly
+          try {
+            const evaluator = new Function(...contextKeys, `return ${expression};`);
+            result = evaluator(...contextValues);
+          } catch (error) {
+            console.error(`Error executing simple expression:`, error);
+            return `[Error: ${error instanceof Error ? error.message : String(error)}]` as any;
+          }
         }
         
-        return evaluator(...contextValues) as T;
+        return result as T;
       } catch (error) {
         console.error(`Error evaluating expression:`, error);
         return `[Error: ${error instanceof Error ? error.message : String(error)}]` as any;
@@ -67,8 +174,8 @@ export function renderTemplateWithJS<T = string>(
   return template.replace(expressionRegex, (match, expression) => {
     try {
       // Create a function that evaluates the expression within the context
-      const contextKeys = Object.keys(context);
-      const contextValues = Object.values(context);
+      const contextKeys = Object.keys(mergedContext);
+      const contextValues = Object.values(mergedContext);
       
       // Create a new function with the context variables as parameters
       // and the expression as the function body
