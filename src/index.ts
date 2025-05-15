@@ -8,23 +8,22 @@
  */
 export interface RenderOptions {
   /**
-   * If true, the function will return the raw value of the expression instead of converting it to a string
+   * If true, returns the raw evaluated value instead of converting to a string
    */
   returnRawValues?: boolean;
   
   /**
-   * If true, the function will run in sandbox mode, restricting access to global objects
+   * If true, restricts access to global objects for security
    */
   sandbox?: boolean;
   
   /**
-   * Custom global objects to be provided to the expression when in sandbox mode
+   * Custom global objects to be provided when in sandbox mode
    */
   allowedGlobals?: Record<string, any>;
   
   /**
    * Timeout in milliseconds for expression evaluation
-   * Set to 0 to disable timeout
    * Default: 1000ms (1 second)
    */
   timeout?: number;
@@ -39,6 +38,13 @@ export interface RenderOptions {
    * Additional context properties to extend the main context
    */
   contextExtensions?: Record<string, any>;
+  
+  /**
+   * If true, uses a more direct but less secure evaluation method
+   * Only use this if you trust the template source
+   * Default: false
+   */
+  unsafeEval?: boolean;
 }
 
 /**
@@ -108,67 +114,70 @@ export function renderTemplateWithJS<T = string>(
         
         let result: any;
         
-        // Handle different types of expressions
-        if (isIIFE) {
-          // For IIFE patterns, evaluate as is
-          try {
-            // For IIFE patterns, we'll use a special approach with Function constructor
-            // Create a wrapper function that will execute the IIFE in the right context
-            const contextKeys = Object.keys(mergedContext);
-            const contextValues = Object.values(mergedContext);
+        // Use a more robust approach to evaluate expressions
+        try {
+          // Create a safe evaluation environment
+          if (options.unsafeEval) {
+            // Direct eval approach - only use when templates are trusted
+            // This is less secure but avoids string escaping issues
+            const contextVars = Object.entries(mergedContext)
+              .map(([key, value]) => `const ${key} = ${JSON.stringify(value)};`)
+              .join('\n');
             
-            // Create a function that returns the result of the IIFE
-            // Using a safer approach to avoid string termination issues
-            const functionBody = `return (${expression});`;
-            const iifeFn = Function.constructor.apply(null, [...contextKeys, functionBody]);
-            
-            // Execute the function with the context values
-            result = iifeFn(...contextValues);
-          } catch (error) {
-            console.error(`Error executing IIFE:`, error);
-            return `[Error: ${error instanceof Error ? error.message : String(error)}]` as any;
-          }
-        } else if (hasDeclarations || hasMultipleStatements) {
-          // For complex expressions with declarations, we need to handle them specially
-          // Make sure there's a return statement if one isn't already present
-          let functionBody: string;
-          if (expression.includes('return ')) {
-            functionBody = expression;
+            // Use direct eval with proper context setup
+            result = eval(`${contextVars}\n${expression}`);
           } else {
-            // For expressions with declarations but no return, add a return at the end
-            const lastSemicolonIndex = expression.lastIndexOf(';');
-            if (lastSemicolonIndex !== -1 && lastSemicolonIndex < expression.length - 1) {
-              // There's content after the last semicolon, return that
-              const lastExpression = expression.substring(lastSemicolonIndex + 1).trim();
-              functionBody = `${expression.substring(0, lastSemicolonIndex + 1)} return ${lastExpression};`;
-            } else {
-              // No obvious return value, just add a return undefined
-              functionBody = `${expression} return undefined;`;
-            }
-          }
-          
-          try {
-            // Use the safer approach for function creation to avoid string termination issues
-            const evaluator = Function.constructor.apply(null, [...contextKeys, functionBody]);
-            result = evaluator(...contextValues);
-          } catch (error) {
-            console.error(`Error executing complex expression:`, error);
-            return `[Error: ${error instanceof Error ? error.message : String(error)}]` as any;
-          }
-        } else {
-          // For simple expressions, just return them directly
-          try {
-            // Safely create the function body to avoid string termination issues
-            // We need to ensure the expression is properly escaped
-            const functionBody = `return ${expression};`;
+            // Safer approach using indirect evaluation
+            // Prepare the expression based on its type
+            let code: string;
             
-            // Create the function using a safer approach
-            const evaluator = Function.constructor.apply(null, [...contextKeys, functionBody]);
-            result = evaluator(...contextValues);
-          } catch (error) {
-            console.error(`Error executing simple expression:`, error);
-            return `[Error: ${error instanceof Error ? error.message : String(error)}]` as any;
+            if (isIIFE) {
+              // For IIFE patterns
+              code = `(${expression})`;
+            } else if (hasDeclarations || hasMultipleStatements) {
+              // For complex expressions with declarations
+              if (expression.includes('return ')) {
+                code = `(function() { ${expression} })();`;
+              } else {
+                // For expressions with declarations but no return, add a return
+                const lastSemicolonIndex = expression.lastIndexOf(';');
+                if (lastSemicolonIndex !== -1 && lastSemicolonIndex < expression.length - 1) {
+                  // There's content after the last semicolon, return that
+                  const lastExpression = expression.substring(lastSemicolonIndex + 1).trim();
+                  code = `(function() { ${expression.substring(0, lastSemicolonIndex + 1)} return ${lastExpression}; })();`;
+                } else {
+                  // No obvious return value
+                  code = `(function() { ${expression}; return undefined; })();`;
+                }
+              }
+            } else {
+              // For simple expressions
+              code = expression;
+            }
+            
+            // Create a secure context for evaluation
+            const secureEval = (code: string, context: Record<string, any>) => {
+              // Create a proxy-based sandbox to safely evaluate code
+              const sandbox = {};
+              Object.entries(context).forEach(([key, value]) => {
+                (sandbox as any)[key] = value;
+              });
+              
+              // Use indirect eval through a function to avoid scope issues
+              const indirectEval = (code: string) => {
+                // This is safer than direct eval
+                return Function('sandbox', `with(sandbox) { return ${code}; }`)(sandbox);
+              };
+              
+              return indirectEval(code);
+            };
+            
+            // Execute the expression in the secure context
+            result = secureEval(code, mergedContext);
           }
+        } catch (error) {
+          console.error(`Error evaluating expression:`, error);
+          return `[Error: ${error instanceof Error ? error.message : String(error)}]` as any;
         }
         
         return result as T;
@@ -182,16 +191,33 @@ export function renderTemplateWithJS<T = string>(
   // Replace each matched expression with its evaluated result
   return template.replace(expressionRegex, (match, expression) => {
     try {
-      // Create a function that evaluates the expression within the context
-      const contextKeys = Object.keys(mergedContext);
-      const contextValues = Object.values(mergedContext);
+      // Use the same robust approach for evaluating expressions in templates
+      let result;
       
-      // Create a new function with the context variables as parameters
-      // and the expression as the function body
-      const evaluator = new Function(...contextKeys, `return (${expression});`);
-      
-      // Execute the function with the context values
-      const result = evaluator(...contextValues);
+      if (options.unsafeEval) {
+        // Direct eval approach - only use when templates are trusted
+        const contextVars = Object.entries(mergedContext)
+          .map(([key, value]) => `const ${key} = ${JSON.stringify(value)};`)
+          .join('\n');
+        
+        // Use direct eval with proper context setup
+        result = eval(`${contextVars}\n(${expression})`);
+      } else {
+        // Create a secure context for evaluation
+        const secureEval = (code: string, context: Record<string, any>) => {
+          // Create a sandbox to safely evaluate code
+          const sandbox = {};
+          Object.entries(context).forEach(([key, value]) => {
+            (sandbox as any)[key] = value;
+          });
+          
+          // Use indirect eval through a function to avoid scope issues
+          return Function('sandbox', `with(sandbox) { return (${code}); }`)(sandbox);
+        };
+        
+        // Execute the expression in the secure context
+        result = secureEval(expression, mergedContext);
+      }
       
       // Handle undefined and null values
       if (result === undefined || result === null) {

@@ -259,6 +259,7 @@ Renders a template string with JavaScript expressions or extracts raw values fro
   - `sandbox` (boolean): If true, restricts access to global objects for security
   - `allowedGlobals` (object): Custom global objects to be provided when in sandbox mode
   - `timeout` (number): Timeout in milliseconds for expression evaluation (default: 1000ms)
+  - `unsafeEval` (boolean): If true, uses a more direct but less secure evaluation method. Only use this if you trust the template source and are experiencing issues with complex expressions. This can resolve certain string escaping issues. (default: false)
 
 #### Returns
 
@@ -346,6 +347,41 @@ const report = renderTemplateWithJS(
 );
 // Output: A formatted sales report with totals, averages, top performers, and sales by category
 ```
+
+## Troubleshooting
+
+### String Escaping Issues
+
+If you encounter errors like `SyntaxError: Arg string terminates parameters early` or other string escaping issues when evaluating expressions with special characters, try enabling the `unsafeEval` option:
+
+```javascript
+renderTemplateWithJS(template, context, { unsafeEval: true });
+```
+
+This uses a more direct evaluation approach that can resolve issues with special characters in your expressions or context values. Only use this option when you trust the template source, as it uses a less sandboxed evaluation method.
+
+### Complex Expressions
+
+For complex expressions with multiple statements, make sure to properly terminate statements with semicolons and consider using an IIFE (Immediately Invoked Function Expression) pattern for cleaner code:
+
+```javascript
+renderTemplateWithJS('{
+  (() => {
+    const x = 10;
+    const y = 20;
+    return x + y;
+  })()
+}', {});
+// Output: "30"
+```
+
+### Context Access
+
+If you're having trouble accessing certain properties or methods from your context, check that:
+
+1. The property exists in the context object
+2. You're using the correct case (JavaScript is case-sensitive)
+3. For nested properties, all parent objects exist
 
 ## License
 
