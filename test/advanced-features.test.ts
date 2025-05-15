@@ -466,4 +466,150 @@ describe('renderTemplateWithJS advanced JavaScript features', () => {
       expect(result).toBe('Apple • Banana • Carrot');
     });
   });
+  
+  describe('Nested property access', () => {
+    test('accesses deeply nested properties', () => {
+      const result = renderTemplateWithJS(
+        '{user.profile.address.city}, {user.profile.address.country}',
+        { 
+          user: {
+            id: 123,
+            profile: {
+              name: 'John Doe',
+              address: {
+                street: '123 Main St',
+                city: 'New York',
+                country: 'USA',
+                postalCode: '10001'
+              }
+            }
+          }
+        }
+      );
+      
+      expect(result).toBe('New York, USA');
+    });
+    
+    test('combines nested properties with string operations', () => {
+      const result = renderTemplateWithJS(
+        '{company.name.toUpperCase()} - {company.departments.length} departments',
+        { 
+          company: {
+            name: 'Acme Corp',
+            founded: 1985,
+            departments: ['Sales', 'Marketing', 'Engineering', 'HR']
+          }
+        }
+      );
+      
+      expect(result).toBe('ACME CORP - 4 departments');
+    });
+    
+    test('handles arrays of objects with nested properties', () => {
+      const result = renderTemplateWithJS(
+        '{data.products.filter(p => p.category === "Electronics").map(p => p.name).join(", ")}',
+        { 
+          data: {
+            store: 'TechMart',
+            products: [
+              {id: 1, name: 'Laptop', category: 'Electronics', price: 999.99},
+              {id: 2, name: 'Book', category: 'Books', price: 19.99},
+              {id: 3, name: 'Smartphone', category: 'Electronics', price: 699.99},
+              {id: 4, name: 'Desk Chair', category: 'Furniture', price: 149.99}
+            ]
+          }
+        },
+        { returnRawValues: true }
+      );
+      
+      expect(result).toBe('Laptop, Smartphone');
+    });
+    
+    test('performs calculations with nested numeric properties', () => {
+      const result = renderTemplateWithJS(
+        '{Math.round((order.items.reduce((sum, item) => sum + item.price * item.quantity, 0) * (1 + order.tax.rate)))}',
+        { 
+          order: {
+            id: 'ORD-12345',
+            customer: 'Jane Smith',
+            items: [
+              {id: 'PROD-1', name: 'Widget', price: 10, quantity: 2},
+              {id: 'PROD-2', name: 'Gadget', price: 15, quantity: 1}
+            ],
+            tax: {
+              rate: 0.08,
+              description: 'Sales Tax'
+            }
+          }
+        },
+        { returnRawValues: true }
+      );
+      
+      expect(result).toBe(38); // (10*2 + 15*1) * 1.08 = 35 * 1.08 = 37.8, rounded to 38
+    });
+    
+    test('handles conditional expressions with nested properties', () => {
+      const result = renderTemplateWithJS(
+        '{user.subscription.isActive ? `Premium user since ${user.subscription.startDate}` : "Free user"}',
+        { 
+          user: {
+            name: 'Alice',
+            email: 'alice@example.com',
+            subscription: {
+              isActive: true,
+              plan: 'Premium',
+              startDate: '2023-01-15',
+              nextBillingDate: '2023-02-15'
+            }
+          }
+        },
+        { returnRawValues: true }
+      );
+      
+      expect(result).toBe('Premium user since 2023-01-15');
+    });
+    
+    test('handles optional chaining with deeply nested properties', () => {
+      const result = renderTemplateWithJS(
+        '{user?.subscription?.features?.map(f => f.name).join(", ") || "No features available"}',
+        { 
+          user: {
+            name: 'Bob',
+            subscription: {
+              plan: 'Basic',
+              features: [
+                {name: 'Storage', limit: '5GB'},
+                {name: 'Support', type: 'Email'},
+                {name: 'Backup', frequency: 'Weekly'}
+              ]
+            }
+          }
+        },
+        { returnRawValues: true }
+      );
+      
+      expect(result).toBe('Storage, Support, Backup');
+    });
+    
+    test('combines nested properties with complex transformations', () => {
+      const result = renderTemplateWithJS(
+        '{(() => { const groupedByDept = {}; organization.employees.forEach(emp => { if (!groupedByDept[emp.department]) { groupedByDept[emp.department] = []; } groupedByDept[emp.department].push(emp.name); }); return Object.entries(groupedByDept).map(([dept, names]) => `${dept}: ${names.join(", ")}`).join("\\n"); })()}',
+        { 
+          organization: {
+            name: 'TechCorp',
+            employees: [
+              {name: 'Alice', department: 'Engineering', role: 'Developer'},
+              {name: 'Bob', department: 'Marketing', role: 'Specialist'},
+              {name: 'Charlie', department: 'Engineering', role: 'Manager'},
+              {name: 'Diana', department: 'HR', role: 'Director'},
+              {name: 'Eve', department: 'Marketing', role: 'Coordinator'}
+            ]
+          }
+        },
+        { returnRawValues: true }
+      );
+      
+      expect(result).toBe('Engineering: Alice, Charlie\nMarketing: Bob, Eve\nHR: Diana');
+    });
+  });
 });
