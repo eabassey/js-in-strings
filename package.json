@@ -1,13 +1,20 @@
 {
   "name": "js-in-strings",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A library for rendering templates with JavaScript expressions",
-  "main": "dist/index.js",
-  "module": "dist/index.mjs",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
   "scripts": {
-    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "build": "tsup src/index.ts --format cjs,esm --dts --sourcemap --clean --treeshake",
     "test": "jest",
     "prepublishOnly": "npm run build"
   },

@@ -112,14 +112,16 @@ export function renderTemplateWithJS<T = string>(
         if (isIIFE) {
           // For IIFE patterns, evaluate as is
           try {
-            // We need to use eval for IIFE patterns because Function constructor
-            // doesn't handle them well
-            const contextStr = Object.entries(mergedContext)
-              .map(([key, value]) => `const ${key} = ${JSON.stringify(value)};`)
-              .join('\n');
+            // For IIFE patterns, we'll use a special approach with Function constructor
+            // Create a wrapper function that will execute the IIFE in the right context
+            const contextKeys = Object.keys(mergedContext);
+            const contextValues = Object.values(mergedContext);
             
-            // Use eval in a controlled way with the context variables defined
-            result = eval(`${contextStr}\n${expression}`);
+            // Create a function that returns the result of the IIFE
+            const iifeFn = new Function(...contextKeys, `return (${expression});`);
+            
+            // Execute the function with the context values
+            result = iifeFn(...contextValues);
           } catch (error) {
             console.error(`Error executing IIFE:`, error);
             return `[Error: ${error instanceof Error ? error.message : String(error)}]` as any;
