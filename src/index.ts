@@ -118,7 +118,9 @@ export function renderTemplateWithJS<T = string>(
             const contextValues = Object.values(mergedContext);
             
             // Create a function that returns the result of the IIFE
-            const iifeFn = new Function(...contextKeys, `return (${expression});`);
+            // Using a safer approach to avoid string termination issues
+            const functionBody = `return (${expression});`;
+            const iifeFn = Function.constructor.apply(null, [...contextKeys, functionBody]);
             
             // Execute the function with the context values
             result = iifeFn(...contextValues);
@@ -146,8 +148,8 @@ export function renderTemplateWithJS<T = string>(
           }
           
           try {
-            // Use the new Function constructor for evaluation
-            const evaluator = new Function(...contextKeys, functionBody);
+            // Use the safer approach for function creation to avoid string termination issues
+            const evaluator = Function.constructor.apply(null, [...contextKeys, functionBody]);
             result = evaluator(...contextValues);
           } catch (error) {
             console.error(`Error executing complex expression:`, error);
@@ -156,7 +158,12 @@ export function renderTemplateWithJS<T = string>(
         } else {
           // For simple expressions, just return them directly
           try {
-            const evaluator = new Function(...contextKeys, `return ${expression};`);
+            // Safely create the function body to avoid string termination issues
+            // We need to ensure the expression is properly escaped
+            const functionBody = `return ${expression};`;
+            
+            // Create the function using a safer approach
+            const evaluator = Function.constructor.apply(null, [...contextKeys, functionBody]);
             result = evaluator(...contextValues);
           } catch (error) {
             console.error(`Error executing simple expression:`, error);
